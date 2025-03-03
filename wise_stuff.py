@@ -41,7 +41,7 @@ def generate_gname(glong, glat):
 # WISE df
 version = 3.0
 str_version = f"{version:.1f}"
-dir_path = '/Users/loren/papers/wise/'
+dir_path = './'
 csv_file = f"{dir_path}wise_hii_master_V{str_version}.csv"
 
 # Read the CSV file into a pandas DataFrame
@@ -65,7 +65,7 @@ WISE_df['Dec (J2000)'] = icrs_coord.dec.value
 
 
 # RRL_Surveys df
-pkl_directory = '/Users/loren/papers/wise/python/rrl_surveys/'
+pkl_directory = 'rrl_surveys/'
 
 # List of columns to keep
 rrl_columns = ['Name', 'GName', 'GLong', 'GLat', 'RA (J2000)', 'Dec (J2000)', 'RMS', 'Te', 'e_Te', 'TL', 'e_TL', 'FWHM', 'e_FWHM', 
@@ -268,7 +268,7 @@ add_region(RRL_Surveys_df,
 
 # Multiple Velocities df
 # Directory containing the .pkl files
-pkl_directory = '/Users/loren/papers/wise/python/multiple_velocities/'
+pkl_directory = 'multiple_velocities/'
 
 # Column names for the final DataFrame
 multvel_columns = ["Name", "GName", "GLong", "GLat", "RA (J2000)", "Dec (J2000)", "Author", "Year", "Real_VLSR"]
@@ -289,7 +289,7 @@ for filename in os.listdir(pkl_directory):
 
 # KDAR df
 # Directory containing the .pkl files
-pkl_directory = '/Users/loren/papers/wise/python/kdars/'
+kdars_directory = 'kdars/'
 
 # Column names for the final DataFrame
 kdar_columns = ["Name", "GName", "GLong", "GLat", "RA (J2000)", "Dec (J2000)", "DAuthor", "DMethod", "Year", "KDAR"]
@@ -300,7 +300,7 @@ KDARs_df = pd.DataFrame()
 # Load each .pkl file into the dataframe
 for filename in os.listdir(pkl_directory):
     if filename.endswith('.pkl') and not filename.endswith('_2.pkl'):
-        file_path = os.path.join(pkl_directory, filename)
+        file_path = os.path.join(kdars_directory, filename)
         
         # Load the .pkl file into a pandas DataFrame
         df = pd.read_pickle(file_path)
@@ -309,9 +309,10 @@ for filename in os.listdir(pkl_directory):
 
 
 # Fluxes df
-IR_df = pd.read_csv('/Users/loren/papers/ir_radio/ir_fphot_NEW.csv')
-VGPS_df = pd.read_csv('/Users/loren/papers/ir_radio/vgps_fphot_NEW.csv')
-MAGPIS_df = pd.read_csv('/Users/loren/papers/ir_radio/magpis_fphot_NEW.csv')
+fluxes_directory = 'fluxes/'
+IR_df = pd.read_csv(fluxes_directory + 'ir_fphot_NEW.csv')
+VGPS_df = pd.read_csv(fluxes_directory + 'vgps_fphot_NEW.csv')
+MAGPIS_df = pd.read_csv(fluxes_directory + 'magpis_fphot_NEW.csv')
 Fluxes_df = pd.merge(pd.merge(IR_df, VGPS_df, on='GName', how='left'), MAGPIS_df, on='GName', how='left')
 
 ###########################################################################333
@@ -412,7 +413,7 @@ WISE_Matched_df = pd.merge(WISE_Matched_df, Fluxes_df, on='GName', how='left', s
 
 
 # Add Spectra
-spectra_directory = '/Users/loren/papers/wise/python/spectra/'
+spectra_directory = 'spectra/'
 
 # Define a dictionary to map subdirectories to authors
 subdirectory_to_author = {
