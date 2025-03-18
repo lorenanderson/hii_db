@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[1]:
+
+
 # Import packages
 import os
 import pandas as pd
@@ -13,8 +16,145 @@ import matplotlib.pyplot as plt
 # Set option to display more rows in the DataFrame for debugging
 pd.set_option('display.max_rows', 1000)
 
-###########################################################################333
-# functions
+
+# In[2]:
+
+
+def match_by_name(WISE_df, matching_df, extension=None, order_by=None):
+    """
+    Matches rows from WISE_Matched_df to matching_df based on Name, adding columns with an extension to matching_df.
+    
+    Parameters:
+        WISE_Matched_df (pd.DataFrame): The main dataframe to which matches are added.
+        matching_df (pd.DataFrame): The dataframe containing the rows to match.
+        extension (str or None): The string to append to new column names in matching_df.
+        order_by (str or None): The column by which to order the matches (e.g., "Year"). If None, no ordering is done.
+        
+    Returns:
+        matched_rows (list of dicts): A list of updated rows for WISE_Matched_df.
+    """
+    matched_rows = []
+    column_names = WISE_df.columns
+    
+    # Iterate over each row in the WISE_df
+    for _, row in WISE_df.iterrows():
+        matched_row = None  # This will store the entire row from the matching DataFrame
+        highest_value = None  # This will store the highest value based on the order_by column
+
+        # Loop through each name in the 'Name_Split' for this row
+        for name in row['Name_Split']:
+            # Find matching rows in matching_df where 'Name' is equal to the name in 'Name_Split'
+            matching_rows = matching_df[matching_df['Name'] == name]
+
+            if not matching_rows.empty:  # Check if there are matching rows
+                if order_by is not None and order_by in matching_rows.columns:
+                    # If order_by column exists, sort the matching rows based on the column
+                    matching_rows = matching_rows.sort_values(by=order_by, ascending=False)
+                    matched_row = matching_rows.iloc[0]  # Take the top match (highest value in order_by)
+                else:
+                    # If no ordering needed, just take the first match
+                    matched_row = matching_rows.iloc[0]  # This is safe because matching_rows isn't empty anymore
+
+        if matched_row is not None:
+            # If match is found, we update the matched row by appending the extension to its columns
+            matched_row_info = matched_row.to_dict()
+            
+            # Create a new dictionary to store the renamed columns with extension
+            updated_matched_row_info = {}
+            
+            # Add the columns from the original row to the new row
+            for col in row.index:
+                updated_matched_row_info[col] = row[col]
+
+            # Append the extension to the columns in the matching dataframe
+            for col in matched_row_info:
+                if col in column_names:  # Avoid modifying specified columns
+                    new_col_name = f'{col}_{extension}'  # Append the extension to column names
+                    updated_matched_row_info[new_col_name] = matched_row_info[col]  # Rename column
+                else:
+                    updated_matched_row_info[col] = matched_row_info[col]  # Keep specified columns unchanged
+
+            matched_rows.append(updated_matched_row_info)
+        else:
+            # If no match was found, keep the original row
+            updated_row = row.to_dict()  # Copy original row
+            matched_rows.append(updated_row)
+
+    return pd.DataFrame(matched_rows)
+
+def match_by_distance(WISE_df, matching_df, size=0., extension='', order_by=None):
+    """
+    Matches rows from WISE_df to matching_df based on distance criteria and returns a list of dictionaries.
+    
+    Parameters:
+        WISE_Matched_df (pd.DataFrame): The dataframe containing WISE data to be matched.
+        matching_df (pd.DataFrame): The dataframe containing matching data (e.g., radio survey data).
+        size (float): The distance threshold in degrees to consider a match.
+        extension (str): The string to append to new column names in matching_df.
+        order_by (str or None): The column by which to order the matches (e.g., "Year"). If None, no ordering is done.
+        
+    Returns:
+        matched_rows (list of dicts): A list of dictionaries with matched row data.
+    """
+    # Compute distances between WISE_Matched_df and matching_df
+    distances = np.sqrt((np.asarray(WISE_Matched_df['GLong'].values)[:, np.newaxis] - 
+                         np.asarray(matching_df['GLong'].values)[np.newaxis, :])**2 + 
+                        (np.asarray(WISE_Matched_df['GLat'].values)[:, np.newaxis] - 
+                         np.asarray(matching_df['GLat'].values)[np.newaxis, :]**2))
+
+    # Determine where distances are within the input size
+    wh = distances < size
+
+    matched_rows = []  # List to store matched rows as dictionaries
+
+    # Loop through WISE_Matched_df to find the best matches
+    for i in range(len(WISE_df)):
+        if np.sum(wh[i, :]):  # If there are matches
+            # Find the indices of the matches that are within the threshold distance
+            matched_indices = np.where(wh[i, :])[0]
+            
+            if order_by is not None and order_by in matching_df.columns:
+                # If order_by column exists, sort the matching rows based on the column
+                matching_rows = matching_df.iloc[matched_indices]
+                matching_rows_sorted = matching_rows.sort_values(by=order_by, ascending=False)
+                matched_row = matching_rows_sorted.iloc[0]  # Take the top match (highest value in order_by)
+            else:
+                # If no ordering needed, just take the first match
+                matched_row = matching_df.iloc[matched_indices[0]]
+
+            # Create a dictionary to store the matched information from WISE_Matched_df
+            matched_row_info = WISE_Matched_df.iloc[i].to_dict()
+
+            # Append the extension to the matched column names
+            for col in matched_row.index:
+                new_col_name = f'{col}_{extension}' if extension else col
+                matched_row_info[new_col_name] = matched_row[col]
+
+            matched_rows.append(matched_row_info)  # Add the matched row to the list
+        else:
+            # If no match was found, keep the original row
+            updated_row = WISE_df.iloc[i].to_dict()  # Copy original row
+            matched_rows.append(updated_row)
+            
+    return pd.DataFrame(matched_rows)
+
+def make_df(dir, columns):
+    # Load each .pkl file into the dataframe
+    for filename in os.listdir(dir):
+        if filename.endswith('.pkl') and not filename.endswith('_2.pkl'):
+            print(filename)
+            file_path = os.path.join(dir, filename)
+        
+            # Load the .pkl file into a pandas DataFrame
+            df = pd.read_pickle(file_path)
+
+            # Strip units by extracting the 'value' attribute from each column
+            df = df.map(lambda x: x.value if isinstance(x, u.Quantity) else x)
+
+            df_filtered = df[columns]
+            df = pd.concat([df, df_filtered], ignore_index=True)
+    return(df)
+
 # add oddball regions
 def add_region(df, **kwargs):
     # Add the new row to the DataFrame using the provided kwargs
@@ -27,7 +167,7 @@ def add_region(df, **kwargs):
     df['Dec (J2000)'] = icrs_coord.dec.value
     df['GName'] = generate_gname(df['GLong'], df['GLat'])
 
-# gname                                                                                                                                                                                                                             
+# gname                                                                                                                                                                                                                               
 def generate_gname(glong, glat):
     glong_str = glong.apply(lambda x: f"{np.floor(x * 1000) / 1000.:07.3f}")
     glat_str = glat.apply(lambda x: f"{np.floor(x * 1000) / 1000.:+07.3f}")
@@ -35,13 +175,48 @@ def generate_gname(glong, glat):
     # Combine them into the desired format                                                                                                                                                                                            
     return 'G' + glong_str + glat_str
 
-###########################################################################333
-# Make db files.  First WISE, then RRL_Surveys, then multiple velocities, then KDARs
 
-# WISE df
+def match_lists(x1, y1, x2, y2, max_r, z1=None, z2=None):
+    """
+    Find closest match in (x2, y2) list from (x1, y1) list.
+    
+    Parameters:
+    - x1, y1: Coordinates of the first list of points.
+    - x2, y2: Coordinates of the second list of points.
+    - max_r: Maximum allowed radius (could be scalar or array).
+    - z1, z2: Optional velocities corresponding to x1, y1, and x2, y2.
+    
+    Returns:
+    - closest: Indices of the closest points in x2, y2 to the points in x1, y1.
+    """
+    # Ensure max_r is an array
+    max_r = np.full(len(x2), max_r) if np.isscalar(max_r) else max_r
+
+    # Calculate distances
+    distances = np.sqrt((x1[:, None] - x2)**2 + (y1[:, None] - y2)**2)
+    
+    # Find closest points within max_r
+    closest = np.argmin(distances, axis=0)
+    closest[distances.min(axis=0) > max_r] = -1
+
+    # Resolve ties if velocities are provided
+    if z1 is not None and z2 is not None:
+        for i in range(len(x2)):
+            if np.sum(distances[:, i] == distances.min(axis=0)[i]) > 1:
+                closest[i] = np.argmin(np.abs(z1 - z2[i]))
+
+    return closest
+
+
+# # Make db files.  First WISE, then RRL_Surveys, then multiple velocities, then KDARs
+
+# In[3]:
+
+
+# WISE
 version = 3.0
 str_version = f"{version:.1f}"
-dir_path = './'
+dir_path = '/Users/loren/papers/wise/'
 csv_file = f"{dir_path}wise_hii_master_V{str_version}.csv"
 
 # Read the CSV file into a pandas DataFrame
@@ -62,10 +237,15 @@ icrs_coord = galactic_coord.transform_to('icrs')
 WISE_df['RA (J2000)'] = icrs_coord.ra.value
 WISE_df['Dec (J2000)'] = icrs_coord.dec.value
 
+# Split the 'Name' column in WISE_df by semicolons to handle multiple names
+WISE_df['Name_Split'] = WISE_df['Name'].apply(lambda x: x.split(';') if isinstance(x, str) else [])
+
+
+# In[4]:
 
 
 # RRL_Surveys df
-pkl_directory = 'rrl_surveys/'
+pkl_directory = '/Users/loren/papers/wise/python/rrl_surveys/'
 
 # List of columns to keep
 rrl_columns = ['Name', 'GName', 'GLong', 'GLat', 'RA (J2000)', 'Dec (J2000)', 'RMS', 'Te', 'e_Te', 'TL', 'e_TL', 'FWHM', 'e_FWHM', 
@@ -266,154 +446,110 @@ add_region(RRL_Surveys_df,
             Name='G358.844+0.026', Author='Anderson et al. (2020)')
 
 
+# In[5]:
+
+
 # Multiple Velocities df
-# Directory containing the .pkl files
-pkl_directory = 'multiple_velocities/'
-
-# Column names for the final DataFrame
+multvel_directory = '/Users/loren/papers/wise/python/multiple_velocities/'
 multvel_columns = ["Name", "GName", "GLong", "GLat", "RA (J2000)", "Dec (J2000)", "Author", "Year", "Real_VLSR"]
-
-# Create an empty DataFrame to hold all data
-Multiple_Velocities_df = pd.DataFrame()
-
-# Load each .pkl file into the dataframe
-for filename in os.listdir(pkl_directory):
-    if filename.endswith('.pkl') and not filename.endswith('_2.pkl'):
-        file_path = os.path.join(pkl_directory, filename)
-        
-        # Load the .pkl file into a pandas DataFrame
-        df = pd.read_pickle(file_path)
-        df_filtered = df[multvel_columns]
-        Multiple_Velocities_df = pd.concat([Multiple_Velocities_df, df_filtered], ignore_index=True)
+Multiple_Velocities_df = make_df(multvel_directory, multvel_columns)
 
 
-# KDAR df
-# Directory containing the .pkl files
-kdars_directory = 'kdars/'
-
-# Column names for the final DataFrame
-kdar_columns = ["Name", "GName", "GLong", "GLat", "RA (J2000)", "Dec (J2000)", "DAuthor", "DMethod", "Year", "KDAR"]
-
-# Create an empty DataFrame to hold all data
-KDARs_df = pd.DataFrame()
-
-# Load each .pkl file into the dataframe
-for filename in os.listdir(pkl_directory):
-    if filename.endswith('.pkl') and not filename.endswith('_2.pkl'):
-        file_path = os.path.join(kdars_directory, filename)
-        
-        # Load the .pkl file into a pandas DataFrame
-        df = pd.read_pickle(file_path)
-        df_filtered = df[kdar_columns]
-        KDARs_df = pd.concat([KDARs_df, df_filtered], ignore_index=True)
+# In[13]:
 
 
-# Fluxes df
-fluxes_directory = 'fluxes/'
+# KDAR
+kdar_directory = '/Users/loren/papers/wise/python/kdars/'
+kdar_columns = ["Name", "GName", "GLong", "GLat", "RA (J2000)", "Dec (J2000)", "Author", "Year", "KDAR", "Method_KDAR"]
+KDARs_df = make_df(kdar_directory, kdar_columns)
+
+
+# In[7]:
+
+
+# Fluxes
+fluxes_directory = '/Users/loren/papers/wise/python/fluxes/'
 IR_df = pd.read_csv(fluxes_directory + 'ir_fphot_NEW.csv')
 VGPS_df = pd.read_csv(fluxes_directory + 'vgps_fphot_NEW.csv')
 MAGPIS_df = pd.read_csv(fluxes_directory + 'magpis_fphot_NEW.csv')
 Fluxes_df = pd.merge(pd.merge(IR_df, VGPS_df, on='GName', how='left'), MAGPIS_df, on='GName', how='left')
 
-###########################################################################333
-# Matching
-# Split the 'Name' column in WISE_df by semicolons to handle multiple names
-WISE_df['Name_Split'] = WISE_df['Name'].apply(lambda x: x.split(';') if isinstance(x, str) else [])
 
-# Initialize an empty list to store matched rows with the most recent year
-matched_rows = []
-
-# Loop through each row in WISE_df
-for index, row in WISE_df.iterrows():
-    matched_name = None  # This will store the name with the highest year
-    matched_row = None  # This will store the entire row from RRL_Surveys_df_unique that matches
-    highest_year = 0
-    
-    # Loop through each name in the 'Name_Split' for this row
-    for name in row['Name_Split']:
-        # Check if the name is in RRL_Surveys_df
-        matches = RRL_Surveys_df[RRL_Surveys_df['Name'] == name]
-        
-        # Take most recent year
-        for _, match in matches.iterrows():
-            if match['Year'] > highest_year:  # If the Year is higher, update the values
-                highest_year = match['Year']
-                matched_name = name
-                matched_row = match
-    
-    # If there was a match, append the information to matched_rows
-    if matched_row is not None:
-        matched_row_info = matched_row.to_dict()  # Convert the matched row to a dictionary
-        matched_row_info['Matched_Name'] = matched_name  # Store the matched name with highest year
-        matched_row_info['WISE_Idx'] = index  # Store the WISE index for later merging
-        matched_rows.append(matched_row_info)
-
-# Convert the matched rows into a DataFrame
-matched_df = pd.DataFrame(matched_rows)
-
-# Merge it back with the WISE_df to retain all original columns
-WISE_Matched_df = pd.merge(WISE_df, matched_df, left_index=True, right_on='WISE_Idx', 
-                           how='left', suffixes=['', '_Observed']).reset_index(drop=True)
+# In[19]:
 
 
-# Store real velocity
-matched_rows = []
+radio_continuum_directory = '/Users/loren/papers/wise/python/radio_continuum/'
+radio_continuum_columns = ["GLong", "GLat", "RA (J2000)", "Dec (J2000)", "Author", "Year"]
+Radio_Continuum_df = make_df(radio_continuum_directory, radio_continuum_columns)
 
-# Iterate over each row in the WISE_Matched_df
-for _, row in WISE_Matched_df.iterrows():
-    # Find matching rows in Multiple_Velocities_df where 'Name' is in 'Name_Split'
-    matching_rows = Multiple_Velocities_df[Multiple_Velocities_df['Name'].isin(row['Name_Split'])]
 
-    if not matching_rows.empty:
-        # Iterate over the columns of matching_rows
-        for col in matching_rows.columns:
-            if col != 'Real_VLSR':  # Avoid modifying the 'Real_VLSR' column
-                new_col_name = f'{col}_Multiple'
-            else:
-                new_col_name = f'{col}'
-            
-            # Assign the value from the matching row to the current row
-            row[new_col_name] = matching_rows[col].values[0]  # Take the first match if there's a match
-    
-    # Append the updated row to the list
-    matched_rows.append(row)
+# In[23]:
 
-# Convert the list of updated rows back to a DataFrame
-WISE_Matched_df = pd.DataFrame(matched_rows)
+
+# Molecules
+molecular_directory = '/Users/loren/papers/wise/python/molecular/'
+molecular_columns = ["GLong", "GLat", "RA (J2000)", "Dec (J2000)", "VLSR", "Molecule", "Author", "Year"]
+Molecular_df = make_df(molecular_directory, molecular_columns)
+
+
+# # Matching
+
+# In[28]:
+
+
+# Match with RRL data
+WISE_Matched_df = match_by_name(WISE_df, RRL_Surveys_df, extension = 'Observed', order_by='Year')
+
+
+# In[29]:
+
+
+# Multiple velocities
+WISE_Matched_df = match_by_name(WISE_Matched_df, Multiple_Velocities_df, 'Real_VLSR', '_Multiple')
+
+
+# In[30]:
 
 
 # KDARs
-matched_rows = []
+WISE_Matched_df = match_by_name(WISE_Matched_df, KDARs_df, 'KDAR', '_KDAR')
 
-# Iterate over each row in the WISE_Matched_df
-for _, row in WISE_Matched_df.iterrows():
-    # Find matching rows in Multiple_Velocities_df where 'Name' is in 'Name_Split'
-    matching_rows = KDARs_df[KDARs_df['Name'].isin(row['Name_Split'])]
 
-    if not matching_rows.empty:
-        # Iterate over the columns of matching_rows
-        for col in matching_rows.columns:
-            if col != 'KDAR':  # Avoid modifying the 'Real_VLSR' column
-                new_col_name = f'{col}_KDAR'
-            else:
-                new_col_name = f'{col}'
-            
-            # Assign the value from the matching row to the current row
-            row[new_col_name] = matching_rows[col].values[0]  # Take the first match if there's a match
-
-    # Append the updated row to the list
-    matched_rows.append(row)
-
-# Convert the list of updated rows back to a DataFrame
-WISE_Matched_df = pd.DataFrame(matched_rows)
+# In[31]:
 
 
 # Fluxes
 WISE_Matched_df = pd.merge(WISE_Matched_df, Fluxes_df, on='GName', how='left', suffixes=('', '_Flux'))
 
 
+# In[32]:
+
+
+# Radio continuum
+WISE_Matched_df = match_by_distance(WISE_Matched_df, Radio_Continuum_df, size=30./3600, extension='Radio_Continuum', order_by='Year')
+for i in range(len(WISE_Matched_df)):
+    if (WISE_Matched_df.loc[i, 'Catalog']=='no_radio') and not (np.isnan(WISE_Matched_df['GLong_Radio_Continuum'][i])):
+        WISE_Matched_df.loc[i, 'Catalog']='observe'
+
+
+# In[33]:
+
+
+# Molecules
+WISE_Matched_df = match_by_distance(WISE_Matched_df, Molecular_df, size=30./3600, extension='Molecular', order_by='Year')
+
+
+# In[36]:
+
+
+print(WISE_Matched_df.columns, len(WISE_Matched_df))
+
+
+# In[18]:
+
+
 # Add Spectra
-spectra_directory = 'spectra/'
+spectra_directory = '/Users/loren/papers/wise/python/spectra/'
 
 # Define a dictionary to map subdirectories to authors
 subdirectory_to_author = {
@@ -454,8 +590,10 @@ for survey in os.listdir(spectra_directory):
                         WISE_Matched_df.loc[index, 'Author_Specrum'] = subdirectory_to_author.get(survey)
 
 
-###########################################################################333
-# Various Fixes and Checks
+# # Various Fixes and Checks
+
+# In[37]:
+
 
 # Set group catalog
 WISE_Matched_df.loc[(WISE_df['Catalog'] == 'observe') & (WISE_Matched_df['Group_Flag'] == 1), 'Catalog'] = 'group'
@@ -499,6 +637,8 @@ WISE_Matched_df.loc[(WISE_Matched_df['Catalog'] == 'no_radio') & (WISE_Matched_d
 WISE_Matched_df.loc[(WISE_Matched_df['Catalog'] == 'no_radio') & (WISE_Matched_df['MeerKATGC'] == 1), 'Catalog'] = 'observe'
 
 ###########################################################################################################################
+
+
 
 # Compare old vs new
 WISE_V23_df = pd.read_csv('/Users/loren/papers/wise/wise_hii_V2.3_hrds.csv')
@@ -546,6 +686,10 @@ for i in range(len(dfmerged)):
 # Replace NaN with None across the entire DataFrame
 WISE_Matched_df = WISE_Matched_df.where(pd.notna(WISE_Matched_df), None)
 
+
+# In[377]:
+
+
 # Diagnostics
 n = len(WISE_Matched_df)
 n_known = np.sum(WISE_Matched_df['Catalog'] == 'known')
@@ -556,39 +700,10 @@ n_no_radio = np.sum(WISE_Matched_df['Catalog'] == 'no_radio')
 print(n, n_known+n_sharpless+n_group+n_observe+n_no_radio, n_known, n_sharpless, n_group, n_observe, n_no_radio)
 
 
-#################################################################################
-# stuff not needed yet
-# merging based on distance instead of matching on name
-def merge_based_on_distance(WISE_df, Multiple_Velocities_df, max_distance=0.04):
-    # Extract GLONG and GLAT columns
-    glong1 = WISE_df['GLong'].values
-    glat1 = WISE_df['GLat'].values
-    glong2 = Multiple_Velocities_df['GLong'].values
-    glat2 = Multiple_Velocities_df['GLat'].values
-
-    # only take known regions
-    good = np.where(WISE_df['VLSR2'] == WISE_df['VLSR2'])[0]
-    print(good)
-    
-    # Create a meshgrid of all combinations between the two dataframes
-    glong1_grid, glong2_grid = np.meshgrid(glong1[good], glong2)
-    glat1_grid, glat2_grid = np.meshgrid(glat1[good], glat2)
-    
-    # Calculate the Euclidean distance for all combinations
-    distance = np.sqrt((glong1_grid - glong2_grid)**2 + (glat1_grid - glat2_grid)**2)
-
-    WISE_df['Real_VLSR'] = np.zeros(len(WISE_df))
-    for i in range(distance.shape[0]):
-        j = np.argmin(distance[i,:])
-        #WISE_df['Real_VLSR'][j] = Multiple_Velocities_df['Real_VLSR'][i]
-        print(i, j, WISE_df['Name'][good[j]], Multiple_Velocities_df['Name'][i], WISE_df['VLSR'][good[j]], Multiple_Velocities_df['Real_VLSR'][i])
+# In[98]:
 
 
-# Call the function and get the combined DataFrame
-merge_based_on_distance(WISE_df, Multiple_Velocities_df)
-
-
-
+############################################################################################
 # Now, let's create a SQL database from the DataFrame
 db_file = '/Users/loren/papers/wise/python/RRL_Surveys.db'
 conn = sqlite3.connect(db_file)
@@ -628,6 +743,7 @@ conn.close()
 print("Database populated successfully!")
 
 
+# In[ ]:
 
 
 # Create a connection to SQLite database (it will create a new database file if it doesn't exist)
@@ -646,3 +762,10 @@ with open(f"{dir_path}wise_hii_master_V{str_version}.pkl", 'wb') as f:
     pickle.dump(WISE_df, f)
 
 print(f"Data saved to {dir_path}wise_hii_master_V{str_version}.pkl")
+
+
+# In[453]:
+
+
+
+
